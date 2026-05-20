@@ -1,17 +1,19 @@
-"""Janela principal da GUI — esqueleto sem lógica (issue #6).
+"""Janela principal da GUI.
 
-Layout: área de drop à esquerda, painel de opções à direita, progress bar
-escondida abaixo do split, e log read-only no rodapé. Nenhum widget conectado
-a comportamento ainda — issues seguintes (#7-#11) plugam drag-and-drop,
-worker thread, export e first-run dialog.
+Layout: área de drop à esquerda (drag-and-drop + browse), painel de opções
+à direita, progress bar escondida abaixo do split, e log read-only no rodapé.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -28,10 +30,17 @@ from PySide6.QtWidgets import (
 )
 
 from kuatia.core.model_manager import available_models
+from kuatia.gui.file_picker import (
+    FILE_DIALOG_FILTER,
+    all_supported,
+    format_duration_short,
+    get_audio_duration,
+    is_supported,
+)
 
 
 class MainWindow(QMainWindow):
-    """Janela principal — apresenta layout sem comportamento ligado."""
+    """Janela principal — drag-and-drop, picker e controles de transcrição."""
 
     DEVICE_CHOICES = ("GPU", "CPU", "NPU", "AUTO")
     LANGUAGE_CHOICES = ("Português", "Inglês", "Espanhol", "Detectar (auto)")
@@ -44,6 +53,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Kuatia — Transcrição local")
         self.resize(960, 640)
+        self.setAcceptDrops(True)
+        self._selected_file: Path | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -78,32 +89,37 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def _build_drop_area(self) -> QWidget:
-        frame = QFrame()
-        frame.setObjectName("dropArea")
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-        frame.setMinimumSize(360, 240)
-        frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        frame.setStyleSheet(
-            "#dropArea {"
-            " border: 2px dashed palette(mid);"
-            " border-radius: 12px;"
-            " background-color: palette(alternate-base);"
-            "}"
-        )
-        layout = QVBoxLayout(frame)
+        self.drop_frame = QFrame()
+        self.drop_frame.setObjectName("dropArea")
+        self.drop_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.drop_frame.setMinimumSize(360, 240)
+        self.drop_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._apply_drop_style(state="idle")
+
+        layout = QVBoxLayout(self.drop_frame)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title = QLabel("Solte um arquivo aqui")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font = title.font()
+
+        self.drop_title = QLabel("Solte um arquivo aqui")
+        self.drop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        font = self.drop_title.font()
         font.setPointSize(16)
         font.setBold(True)
-        title.setFont(font)
-        subtitle = QLabel("…ou clique pra escolher (mp4, mp3, wav, m4a, …)")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: palette(mid);")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        return frame
+        self.drop_title.setFont(font)
+
+        self.drop_subtitle = QLabel("…ou clique em Procurar (mp4, mp3, wav, m4a, flac, ogg, webm)")
+        self.drop_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_subtitle.setStyleSheet("color: palette(mid);")
+        self.drop_subtitle.setWordWrap(True)
+
+        self.browse_button = QPushButton("Procurar…")
+        self.browse_button.setMinimumHeight(32)
+        self.browse_button.clicked.connect(self._on_browse_clicked)
+
+        layout.addWidget(self.drop_title)
+        layout.addWidget(self.drop_subtitle)
+        layout.addSpacing(12)
+        layout.addWidget(self.browse_button, alignment=Qt.AlignmentFlag.AlignCenter)
+        return self.drop_frame
 
     def _build_options_panel(self) -> QWidget:
         panel = QWidget()
@@ -153,3 +169,100 @@ class MainWindow(QMainWindow):
 
         outer.addStretch(1)
         return panel
+
+    # ---- Drag-and-drop ----
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802 (Qt API)
+        paths = self._paths_from_event(event)
+        if paths and all_supported(paths):
+            event.acceptProposedAction()
+            self._apply_drop_style(state="accept")
+        else:
+            event.ignore()
+            if paths:
+                self._apply_drop_style(state="reject")
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:  # noqa: N802 (Qt API)
+        del event  # apenas restauramos o estilo
+        self._apply_drop_style(state="idle")
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802 (Qt API)
+        paths = self._paths_from_event(event)
+        if not paths or not all_supported(paths):
+            event.ignore()
+            self._apply_drop_style(state="idle")
+            return
+        event.acceptProposedAction()
+        self._apply_drop_style(state="idle")
+        self.set_selected_file(paths[0])
+
+    @staticmethod
+    def _paths_from_event(event: QDragEnterEvent | QDropEvent) -> list[Path]:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return []
+        out: list[Path] = []
+        for url in mime.urls():
+            local = url.toLocalFile()
+            if local:
+                out.append(Path(local))
+        return out
+
+    def _apply_drop_style(self, state: str) -> None:
+        """Atualiza a borda da área de drop conforme o estado da operação."""
+        color = {
+            "idle": "palette(mid)",
+            "accept": "palette(highlight)",
+            "reject": "#c0392b",
+        }.get(state, "palette(mid)")
+        self.drop_frame.setStyleSheet(
+            f"#dropArea {{"
+            f" border: 2px dashed {color};"
+            f" border-radius: 12px;"
+            f" background-color: palette(alternate-base);"
+            f"}}"
+        )
+
+    # ---- Browse + estado do arquivo ----
+
+    def _on_browse_clicked(self) -> None:
+        start_dir = (
+            str(self._selected_file.parent) if self._selected_file is not None else str(Path.home())
+        )
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Escolher arquivo de áudio/vídeo",
+            start_dir,
+            FILE_DIALOG_FILTER,
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+        if not is_supported(path):
+            self.append_log(f"Ignorado: {path.name} (extensão não suportada).")
+            return
+        self.set_selected_file(path)
+
+    def set_selected_file(self, path: Path) -> None:
+        """Atualiza o estado interno e a UI da drop area com o arquivo escolhido."""
+        self._selected_file = path
+        duration = get_audio_duration(path)
+        self.drop_title.setText(path.name)
+        if duration is None:
+            self.drop_subtitle.setText(
+                "Duração: --:-- (ffprobe ausente ou arquivo não inspecionável)"
+            )
+        else:
+            self.drop_subtitle.setText(f"Duração: {format_duration_short(duration)}")
+        self.browse_button.setText("Trocar arquivo…")
+        self.append_log(f"selecionado: {path}")
+
+    @property
+    def selected_file(self) -> Path | None:
+        return self._selected_file
+
+    # ---- Utilitário ----
+
+    def append_log(self, message: str) -> None:
+        """Linha nova no log da UI. Usado por DnD, browse e (futuramente) worker."""
+        self.log_view.appendPlainText(message)
