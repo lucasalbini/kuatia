@@ -11,25 +11,30 @@ Alvo é **Windows nativo** (PowerShell), não WSL — passthrough de iGPU/NPU In
 Comandos canônicos:
 ```powershell
 uv sync                                                     # instala deps
-uv run kuatia-convert --out models\whisper-large-v3-ov      # converte modelo (1x)
-uv run kuatia-transcribe "arquivo.mp4"                      # transcreve
+uv run kuatia-transcribe "arquivo.mp4"                      # transcreve (baixa modelo no 1º run)
+uv run kuatia-transcribe "arquivo.mp4" --model medium       # trocar modelo
 uv run kuatia-transcribe "arquivo.mp4" --verbose            # logs DEBUG
+# `kuatia-convert` continua útil pra modelo INT8 (NPU) ou diretório custom — uso avançado.
 ```
 
 ## Estrutura
 ```
 src/kuatia/
-├── cli.py              # entry point CLI (entry: kuatia-transcribe)
-├── convert_model.py    # one-shot: HF → OpenVINO IR (entry: kuatia-convert)
-└── core/               # API pura reutilizável (CLI + futura GUI)
-    ├── audio.py        # load_audio via ffmpeg
-    ├── errors.py       # AudioLoadError, ModelNotFoundError, TranscriptionError
-    ├── transcriber.py  # Transcriber, Segment
-    └── writers.py      # write_txt, write_srt, write_vtt
-docs/adr/               # ADRs
-tests/                  # pytest
-models/                 # gitignored, modelos OV vão aqui
+├── cli.py                 # entry point CLI (entry: kuatia-transcribe)
+├── convert_model.py       # one-shot: HF → OpenVINO IR (entry: kuatia-convert)
+└── core/                  # API pura reutilizável (CLI + futura GUI)
+    ├── audio.py           # load_audio via ffmpeg
+    ├── errors.py          # AudioLoadError, ModelNotFoundError, TranscriptionError
+    ├── model_manager.py   # cache, download e conversão de modelos (HF Hub)
+    ├── transcriber.py     # Transcriber, Segment
+    └── writers.py         # write_txt, write_srt, write_vtt, write_docx
+docs/adr/                  # ADRs
+tests/                     # pytest
+models/                    # gitignored, modelos OV convertidos manualmente
 ```
+
+Modelos baixados pelo `model_manager` ficam fora do repo:
+`%LOCALAPPDATA%\kuatia\models\` (Windows) ou `~/.cache/kuatia/models/` (Linux/macOS).
 
 ## Git workflow (override local)
 - **Posso (Claude) revisar e mergear PRs automatizadas em `dev` neste projeto.** Override do default global (no global, só Lucas mergeia).

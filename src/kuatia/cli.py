@@ -1,7 +1,7 @@
 """Entry point CLI do kuatia.
 
-Orquestra `core/audio` → `core/transcriber` → `core/writers`. A lógica
-de domínio fica nos módulos do core; aqui só ficam argparse, logging
+Orquestra `core/audio` → `core/model_manager` → `core/transcriber` → `core/writers`.
+A lógica de domínio fica nos módulos do core; aqui só ficam argparse, logging
 e tradução de exceptions em exit codes.
 """
 
@@ -15,6 +15,7 @@ from pathlib import Path
 
 from kuatia.core.audio import load_audio
 from kuatia.core.errors import AudioLoadError, ModelNotFoundError, TranscriptionError
+from kuatia.core.model_manager import available_models, download_and_convert
 from kuatia.core.transcriber import Transcriber
 from kuatia.core.writers import write_srt, write_txt
 
@@ -33,13 +34,26 @@ def _setup_logging(verbose: bool) -> None:
 
 
 def main() -> None:
+    model_choices = [m.name for m in available_models()]
     parser = argparse.ArgumentParser(description="Transcreve áudio/vídeo com Whisper + OpenVINO.")
     parser.add_argument("input", type=Path, help="Arquivo de áudio ou vídeo (mp4, mp3, wav, ...).")
     parser.add_argument(
+        "--model",
+        default="large-v3",
+        choices=model_choices,
+        help=(
+            "Nome curto do modelo (default: large-v3). Baixa do HF Hub e converte pra "
+            "OpenVINO IR no 1º run; cacheado depois disso."
+        ),
+    )
+    parser.add_argument(
         "--model-dir",
         type=Path,
-        default=Path("models/whisper-large-v3-ov"),
-        help="Diretório do modelo OpenVINO IR (gerado por kuatia-convert).",
+        default=None,
+        help=(
+            "Diretório de um modelo OpenVINO IR pré-convertido (sobrepõe --model). "
+            "Útil pra modelo INT8 customizado ou local fora do cache."
+        ),
     )
     parser.add_argument(
         "--device",
@@ -77,8 +91,9 @@ def main() -> None:
 
     try:
         audio = load_audio(args.input)
+        model_dir = args.model_dir or download_and_convert(args.model)
         transcriber = Transcriber()
-        transcriber.load_model(args.model_dir, args.device)
+        transcriber.load_model(model_dir, args.device)
         segments = transcriber.transcribe(audio, language=args.language, task=args.task)
     except (AudioLoadError, ModelNotFoundError, TranscriptionError) as exc:
         sys.exit(str(exc))
