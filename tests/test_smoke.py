@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 import pytest
 
 
@@ -28,7 +31,7 @@ def test_core_api_importa() -> None:
         TranscriptionError,
     )
     from kuatia.core.transcriber import Segment, Transcriber
-    from kuatia.core.writers import write_srt, write_txt, write_vtt
+    from kuatia.core.writers import DocxMeta, write_docx, write_srt, write_txt, write_vtt
 
     assert SAMPLE_RATE == 16_000
     assert callable(load_audio)
@@ -36,10 +39,73 @@ def test_core_api_importa() -> None:
     assert callable(write_txt)
     assert callable(write_srt)
     assert callable(write_vtt)
+    assert callable(write_docx)
+    assert callable(DocxMeta)
     assert issubclass(AudioLoadError, KuatiaError)
     assert issubclass(ModelNotFoundError, KuatiaError)
     assert issubclass(TranscriptionError, KuatiaError)
     assert Segment(0.0, 1.0, "x").text == "x"
+
+
+def test_write_docx_estrutura(tmp_path: Path) -> None:
+    from docx import Document
+
+    from kuatia.core.transcriber import Segment
+    from kuatia.core.writers import DocxMeta, write_docx
+
+    segments = [
+        Segment(0.0, 1.5, "Olá mundo"),
+        Segment(2.0, 3.5, "Segunda fala"),
+        Segment(4.0, 5.5, "Terceira fala"),
+    ]
+    meta = DocxMeta(
+        input_name="exemplo.mp4",
+        duration_sec=125.5,
+        model_name="whisper-large-v3",
+        generated_at=datetime(2026, 5, 20, 22, 45),
+    )
+    out = tmp_path / "out.docx"
+    write_docx(segments, out, meta=meta)
+
+    assert out.exists() and out.stat().st_size > 0
+
+    doc = Document(str(out))
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+
+    # Cabeçalho deve conter os campos do meta
+    assert "Transcrição" in full_text
+    assert "exemplo.mp4" in full_text
+    assert "whisper-large-v3" in full_text
+    assert "20/05/2026" in full_text
+    assert "22:45" in full_text
+    assert "2m 06s" in full_text  # 125.5s arredonda pra 126s = 2m 06s
+
+    # Conteúdo: 3 segments aparecem no documento
+    assert "Olá mundo" in full_text
+    assert "Segunda fala" in full_text
+    assert "Terceira fala" in full_text
+
+    # Timestamps em formato SRT
+    assert "[00:00:00,000]" in full_text
+    assert "[00:00:02,000]" in full_text
+    assert "[00:00:04,000]" in full_text
+
+
+def test_write_docx_sem_meta(tmp_path: Path) -> None:
+    """Sem `meta`, doc usa placeholders e datetime.now() pra `Gerado em`."""
+    from docx import Document
+
+    from kuatia.core.transcriber import Segment
+    from kuatia.core.writers import write_docx
+
+    out = tmp_path / "minimal.docx"
+    write_docx([Segment(0.0, 1.0, "fala única")], out)
+
+    doc = Document(str(out))
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Transcrição" in full_text
+    assert "fala única" in full_text
+    assert "—" in full_text  # placeholder dos campos sem meta
 
 
 @pytest.mark.parametrize(
