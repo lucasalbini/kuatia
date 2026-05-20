@@ -59,39 +59,39 @@ Crie o venv e instale as deps:
 uv sync
 ```
 
-## Passo 1 — converter o modelo (uma vez só)
+## Passo 1 — transcrever
 
-Baixa `openai/whisper-large-v3` do HuggingFace (~3 GB) e exporta para o formato OpenVINO IR.
-
-```powershell
-# Para GPU/CPU (FP16, melhor qualidade)
-uv run kuatia-convert --model openai/whisper-large-v3 --out models\whisper-large-v3-ov
-
-# Para NPU (INT8, obrigatório)
-uv run kuatia-convert --model openai/whisper-large-v3 --out models\whisper-large-v3-ov-int8 --int8
-```
-
-O modelo fica em `models\whisper-large-v3-ov\`. Esse passo demora alguns minutos no primeiro download.
-
-## Passo 2 — transcrever
+No 1º run, o Kuatia baixa o modelo do HuggingFace (~3 GB) e converte pra OpenVINO IR
+automaticamente. Os arquivos ficam cacheados em `%LOCALAPPDATA%\kuatia\models\` (Windows)
+ou `~/.cache/kuatia/models/` (Linux/macOS) — runs seguintes reusam.
 
 ```powershell
-# Default: iGPU Intel Arc, idioma português
+# Default: large-v3 + iGPU Intel Arc + idioma português
 uv run kuatia-transcribe "audiencia.mp4"
+
+# Trocar modelo (large-v3 / medium / small)
+uv run kuatia-transcribe "audiencia.mp4" --model medium
 
 # Logs detalhados (DEBUG)
 uv run kuatia-transcribe "audiencia.mp4" --verbose
-
-# Forçar NPU (precisa do modelo int8)
-uv run kuatia-transcribe "audiencia.mp4" `
-    --device NPU `
-    --model-dir models\whisper-large-v3-ov-int8
 
 # Detecção automática de idioma
 uv run kuatia-transcribe "audio.mp3" --language auto
 
 # Traduzir para inglês ao invés de transcrever
 uv run kuatia-transcribe "audio.mp3" --task translate
+```
+
+### Modelo customizado / NPU INT8
+
+Pra NPU (modelo INT8 obrigatório) ou diretório próprio:
+
+```powershell
+# Converter modelo INT8 pra NPU (uma vez)
+uv run kuatia-convert --model openai/whisper-large-v3 --out models\large-v3-int8 --int8
+
+# Usar com --model-dir (sobrepõe --model)
+uv run kuatia-transcribe "audiencia.mp4" --device NPU --model-dir models\large-v3-int8
 ```
 
 A saída fica no mesmo diretório do input (salvo `--output-dir`):
