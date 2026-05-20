@@ -43,9 +43,9 @@ jobs:
         run: uv run mypy src/
 
       - name: Pytest
-        # Coverage threshold sobe conforme o core for refactorado (issues #1-#3 do plano).
-        # PR para dev: >=80% em código novo; merge dev->prod: >=90% total.
-        run: uv run pytest -v --cov=src/kuatia --cov-report=term-missing --cov-report=xml
+        # Cobertura medida em `src/kuatia/core/` (AC #4 — tests de CLI/convert_model
+        # estão fora de escopo). PR para dev: gate em 80%; merge dev->prod: gate em 90%.
+        run: uv run pytest -v --cov=src/kuatia/core --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
       - name: Upload coverage artifact
         if: always()
