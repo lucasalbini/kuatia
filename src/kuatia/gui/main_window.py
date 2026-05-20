@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from kuatia.core.model_manager import available_models
+from kuatia.gui.devices import default_device, detect_devices, device_label
 from kuatia.gui.file_picker import (
     FILE_DIALOG_FILTER,
     all_supported,
@@ -42,7 +43,6 @@ from kuatia.gui.file_picker import (
 class MainWindow(QMainWindow):
     """Janela principal — drag-and-drop, picker e controles de transcrição."""
 
-    DEVICE_CHOICES = ("GPU", "CPU", "NPU", "AUTO")
     LANGUAGE_CHOICES = ("Português", "Inglês", "Espanhol", "Detectar (auto)")
     TASK_CHOICES = (
         ("Transcrever", "transcribe"),
@@ -138,7 +138,13 @@ class MainWindow(QMainWindow):
         form.addRow("Modelo:", self.model_combo)
 
         self.device_combo = QComboBox()
-        self.device_combo.addItems(self.DEVICE_CHOICES)
+        devices = detect_devices()
+        for dev in devices:
+            self.device_combo.addItem(device_label(dev), userData=dev)
+        chosen = default_device(devices)
+        idx = self.device_combo.findData(chosen)
+        if idx >= 0:
+            self.device_combo.setCurrentIndex(idx)
         form.addRow("Device:", self.device_combo)
 
         self.language_combo = QComboBox()

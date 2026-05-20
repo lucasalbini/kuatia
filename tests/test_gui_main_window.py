@@ -50,10 +50,28 @@ def test_combo_model_lista_modelos_disponiveis(qapp: object) -> None:
     assert items == names
 
 
-def test_combo_device_tem_opcoes_esperadas(qapp: object) -> None:
+def test_combo_device_populado_da_deteccao(qapp: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dropdown de device vem de `detect_devices()`. NPU ganha sufixo de aviso."""
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.detect_devices",
+        lambda: ["CPU", "GPU", "NPU", "AUTO"],
+    )
+    monkeypatch.setattr("kuatia.gui.main_window.default_device", lambda _devices: "GPU")
     window = MainWindow()
+    data = [window.device_combo.itemData(i) for i in range(window.device_combo.count())]
     texts = [window.device_combo.itemText(i) for i in range(window.device_combo.count())]
-    assert texts == list(MainWindow.DEVICE_CHOICES)
+    assert data == ["CPU", "GPU", "NPU", "AUTO"]
+    assert "NPU" in texts[2] and "INT8" in texts[2]
+    assert window.device_combo.currentData() == "GPU"
+
+
+def test_combo_device_default_cpu_quando_sem_gpu(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("kuatia.gui.main_window.detect_devices", lambda: ["CPU", "AUTO"])
+    monkeypatch.setattr("kuatia.gui.main_window.default_device", lambda _devices: "CPU")
+    window = MainWindow()
+    assert window.device_combo.currentData() == "CPU"
 
 
 def test_combo_task_mapeia_para_valor_interno(qapp: object) -> None:
