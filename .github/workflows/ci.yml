@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, prod]
+  push:
+    branches: [dev, prod]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint + Type check + Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        run: uv run mypy src/
+
+      - name: Pytest
+        # Coverage threshold sobe conforme o core for refactorado (issues #1-#3 do plano).
+        # PR para dev: >=80% em código novo; merge dev->prod: >=90% total.
+        run: uv run pytest -v --cov=src/kuatia --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  coverage-gate-prod:
+    name: Coverage >= 90% (prod gate)
+    if: github.base_ref == 'prod' || github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml
+      - name: Enforce 90% total coverage
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET, sys
+          tree = ET.parse("coverage.xml")
+          rate = float(tree.getroot().attrib["line-rate"])
+          pct = rate * 100
+          print(f"Total coverage: {pct:.2f}%")
+          if pct < 90:
+              sys.exit(f"Coverage {pct:.2f}% < 90% obrigatório para prod")
+          EOF
