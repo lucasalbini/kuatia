@@ -137,9 +137,7 @@ def write_srt(chunks: list[tuple[float, float, str]], output_path: Path) -> None
 
 def build_pipeline(model_dir: Path, device: str) -> Any:
     if not model_dir.exists():
-        sys.exit(
-            f"Modelo não encontrado em {model_dir}. Rode `kuatia-convert` antes."
-        )
+        sys.exit(f"Modelo não encontrado em {model_dir}. Rode `kuatia-convert` antes.")
     log.info("modelo: carregando %s no device=%s", model_dir.name, device)
     started = time.perf_counter()
     model = OVModelForSpeechSeq2Seq.from_pretrained(
@@ -147,7 +145,7 @@ def build_pipeline(model_dir: Path, device: str) -> Any:
         device=device,
         ov_config={"PERFORMANCE_HINT": "LATENCY"},
     )
-    processor = AutoProcessor.from_pretrained(model_dir)
+    processor = AutoProcessor.from_pretrained(model_dir)  # type: ignore[no-untyped-call]
     pipe = pipeline(
         "automatic-speech-recognition",
         model=model,

@@ -34,7 +34,7 @@ def convert(model_id: str, output_dir: Path, int8: bool) -> None:
     model = OVModelForSpeechSeq2Seq.from_pretrained(model_id, **load_kwargs)
     model.save_pretrained(output_dir)
 
-    processor = AutoProcessor.from_pretrained(model_id)
+    processor = AutoProcessor.from_pretrained(model_id)  # type: ignore[no-untyped-call]
     processor.save_pretrained(output_dir)
 
     print(f"Pronto. Modelo OpenVINO salvo em: {output_dir}")
