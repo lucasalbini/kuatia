@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -29,7 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from kuatia.core.model_manager import available_models
+from kuatia.core.model_manager import available_models, is_model_ready, model_dir
+from kuatia.core.transcriber import Segment
 from kuatia.gui.devices import default_device, detect_devices, device_label
 from kuatia.gui.file_picker import (
     FILE_DIALOG_FILTER,
@@ -38,12 +40,18 @@ from kuatia.gui.file_picker import (
     get_audio_duration,
     is_supported,
 )
+from kuatia.gui.worker import TranscribeWorker, make_transcriber
 
 
 class MainWindow(QMainWindow):
     """Janela principal — drag-and-drop, picker e controles de transcrição."""
 
-    LANGUAGE_CHOICES = ("Português", "Inglês", "Espanhol", "Detectar (auto)")
+    LANGUAGE_CHOICES = (
+        ("Português", "portuguese"),
+        ("Inglês", "english"),
+        ("Espanhol", "spanish"),
+        ("Detectar (auto)", "auto"),
+    )
     TASK_CHOICES = (
         ("Transcrever", "transcribe"),
         ("Traduzir (→ inglês)", "translate"),
@@ -55,7 +63,11 @@ class MainWindow(QMainWindow):
         self.resize(960, 640)
         self.setAcceptDrops(True)
         self._selected_file: Path | None = None
+        self._worker: TranscribeWorker | None = None
+        self._worker_thread: QThread | None = None
+        self._last_segments: list[Segment] = []
         self._build_ui()
+        self.transcribe_button.clicked.connect(self._on_transcribe_clicked)
 
     def _build_ui(self) -> None:
         central = QWidget(self)
@@ -148,7 +160,8 @@ class MainWindow(QMainWindow):
         form.addRow("Device:", self.device_combo)
 
         self.language_combo = QComboBox()
-        self.language_combo.addItems(self.LANGUAGE_CHOICES)
+        for label, value in self.LANGUAGE_CHOICES:
+            self.language_combo.addItem(label, userData=value)
         form.addRow("Idioma:", self.language_combo)
 
         self.task_combo = QComboBox()
@@ -270,5 +283,127 @@ class MainWindow(QMainWindow):
     # ---- Utilitário ----
 
     def append_log(self, message: str) -> None:
-        """Linha nova no log da UI. Usado por DnD, browse e (futuramente) worker."""
+        """Linha nova no log da UI. Usado por DnD, browse e worker."""
         self.log_view.appendPlainText(message)
+
+    # ---- Transcribe button / worker thread ----
+
+    @property
+    def is_running(self) -> bool:
+        return self._worker is not None
+
+    def _on_transcribe_clicked(self) -> None:
+        if self.is_running:
+            self._request_cancel()
+            return
+
+        if self._selected_file is None:
+            self._show_message("Escolha um arquivo de áudio/vídeo antes de transcrever.")
+            return
+
+        model_name = self.model_combo.currentData()
+        if not is_model_ready(model_name):
+            self._show_message(
+                f"O modelo {model_name!r} ainda não foi baixado.\n\n"
+                "Esse passo será automatizado pelo dialog da issue #11. Por enquanto, "
+                "rode `kuatia-transcribe --model " + model_name + " <arquivo>` uma vez "
+                "no CLI pra cachear o modelo, ou aponte um diretório existente."
+            )
+            return
+
+        target_dir = model_dir(model_name)
+        device = self.device_combo.currentData() or "CPU"
+        language = self.language_combo.currentData() or "portuguese"
+        task = self.task_combo.currentData() or "transcribe"
+
+        self._start_worker(self._selected_file, target_dir, device, language, task)
+
+    def _start_worker(
+        self,
+        input_path: Path,
+        target_model_dir: Path,
+        device: str,
+        language: str,
+        task: str,
+    ) -> None:
+        transcriber = make_transcriber()
+        worker = TranscribeWorker(
+            transcriber=transcriber,
+            input_path=input_path,
+            model_dir=target_model_dir,
+            device=device,
+            language=language,
+            task=task,
+        )
+        thread = QThread(self)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_worker_progress)
+        worker.log_line.connect(self.append_log)
+        worker.finished.connect(self._on_worker_finished)
+        worker.error.connect(self._on_worker_error)
+        worker.cancelled.connect(self._on_worker_cancelled)
+        # Limpa thread em qualquer terminação.
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        worker.cancelled.connect(thread.quit)
+        thread.finished.connect(self._teardown_worker)
+
+        self._worker = worker
+        self._worker_thread = thread
+        self._enter_running_state()
+        thread.start()
+
+    def _request_cancel(self) -> None:
+        if self._worker is not None:
+            self.append_log("Solicitando cancelamento…")
+            self._worker.request_cancel()
+            self.transcribe_button.setEnabled(False)
+
+    def _enter_running_state(self) -> None:
+        self.transcribe_button.setText("Cancelar")
+        self.transcribe_button.setEnabled(True)
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+        self.browse_button.setEnabled(False)
+
+    def _leave_running_state(self) -> None:
+        self.transcribe_button.setText("Transcrever")
+        self.transcribe_button.setEnabled(True)
+        self.progress.setVisible(False)
+        self.progress.setValue(0)
+        self.browse_button.setEnabled(True)
+
+    def _on_worker_progress(self, percent: int) -> None:
+        self.progress.setValue(percent)
+
+    def _on_worker_finished(self, segments: list[Segment]) -> None:
+        self._last_segments = segments
+        self.append_log(f"Transcrição concluída: {len(segments)} segments.")
+        self._leave_running_state()
+
+    def _on_worker_error(self, message: str) -> None:
+        self.append_log(f"ERRO: {message}")
+        self._show_message(f"Falha na transcrição:\n\n{message}")
+        self._leave_running_state()
+
+    def _on_worker_cancelled(self) -> None:
+        self.append_log("Transcrição cancelada.")
+        self._leave_running_state()
+
+    def _teardown_worker(self) -> None:
+        if self._worker_thread is not None:
+            self._worker_thread.deleteLater()
+        if self._worker is not None:
+            self._worker.deleteLater()
+        self._worker = None
+        self._worker_thread = None
+
+    def _show_message(self, text: str) -> None:
+        QMessageBox.information(self, "Kuatia", text)
+
+    @property
+    def last_segments(self) -> list[Segment]:
+        """Último resultado emitido por `finished` — vazio se nada rodou ainda."""
+        return list(self._last_segments)
