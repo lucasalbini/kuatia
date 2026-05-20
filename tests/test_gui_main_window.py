@@ -92,3 +92,165 @@ def test_app_entry_point_importa(qapp: object) -> None:
     from kuatia.gui.app import main
 
     assert callable(main)
+
+
+# ---- Drag-and-drop / file picker (issue #7) ----
+
+
+def test_window_aceita_drops(qapp: object) -> None:
+    window = MainWindow()
+    assert window.acceptDrops() is True
+
+
+def test_browse_button_existe_e_inicial(qapp: object) -> None:
+    window = MainWindow()
+    assert isinstance(window.browse_button, QPushButton)
+    assert window.browse_button.text() == "Procurar…"
+
+
+def test_selected_file_inicialmente_none(qapp: object) -> None:
+    window = MainWindow()
+    assert window.selected_file is None
+
+
+def test_set_selected_file_atualiza_ui_com_duracao(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Após set_selected_file, drop_title vira o nome e subtitle mostra a duração."""
+    from pathlib import Path
+
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: 125.0)
+
+    window = MainWindow()
+    window.set_selected_file(Path("/tmp/exemplo.mp4"))
+
+    assert window.selected_file == Path("/tmp/exemplo.mp4")
+    assert window.drop_title.text() == "exemplo.mp4"
+    assert "2m 05s" in window.drop_subtitle.text()
+    assert window.browse_button.text() == "Trocar arquivo…"
+    assert "selecionado:" in window.log_view.toPlainText()
+
+
+def test_set_selected_file_sem_duracao_mostra_placeholder(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ffprobe ausente → subtitle indica `--:--` mas UI não crasha."""
+    from pathlib import Path
+
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: None)
+
+    window = MainWindow()
+    window.set_selected_file(Path("/tmp/sem_ffprobe.wav"))
+
+    assert window.selected_file == Path("/tmp/sem_ffprobe.wav")
+    subtitle = window.drop_subtitle.text()
+    assert "ffprobe ausente" in subtitle or "--:--" in subtitle
+
+
+def test_paths_from_event_extrai_urls_locais(qapp: object) -> None:
+    """Helper estático: extrai paths locais de mimeData com URLs."""
+    from pathlib import Path
+
+    from PySide6.QtCore import QUrl
+
+    class _FakeMime:
+        def __init__(self, urls: list[QUrl]) -> None:
+            self._urls = urls
+
+        def hasUrls(self) -> bool:
+            return bool(self._urls)
+
+        def urls(self) -> list[QUrl]:
+            return self._urls
+
+    class _FakeEvent:
+        def __init__(self, mime: _FakeMime) -> None:
+            self._mime = mime
+
+        def mimeData(self) -> _FakeMime:
+            return self._mime
+
+    urls = [QUrl.fromLocalFile("/tmp/a.mp4"), QUrl.fromLocalFile("/tmp/b.txt")]
+    paths = MainWindow._paths_from_event(_FakeEvent(_FakeMime(urls)))
+    assert paths == [Path("/tmp/a.mp4"), Path("/tmp/b.txt")]
+
+
+def test_paths_from_event_sem_urls(qapp: object) -> None:
+    class _FakeMime:
+        def hasUrls(self) -> bool:
+            return False
+
+        def urls(self) -> list[object]:
+            return []
+
+    class _FakeEvent:
+        def mimeData(self) -> _FakeMime:
+            return _FakeMime()
+
+    assert MainWindow._paths_from_event(_FakeEvent()) == []
+
+
+def test_drag_enter_event_aceita_arquivo_valido(qapp: object) -> None:
+    """Simula dragEnter com um .mp4 — evento deve ser aceito."""
+    from PySide6.QtCore import QMimeData, QPoint, Qt, QUrl
+    from PySide6.QtGui import QDragEnterEvent
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile("/tmp/foo.mp4")])
+    event = QDragEnterEvent(
+        QPoint(10, 10),
+        Qt.DropAction.CopyAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    window = MainWindow()
+    window.dragEnterEvent(event)
+    assert event.isAccepted()
+
+
+def test_drag_enter_event_rejeita_arquivo_invalido(qapp: object) -> None:
+    """Simula dragEnter com um .txt — evento ignorado."""
+    from PySide6.QtCore import QMimeData, QPoint, Qt, QUrl
+    from PySide6.QtGui import QDragEnterEvent
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile("/tmp/foo.txt")])
+    event = QDragEnterEvent(
+        QPoint(10, 10),
+        Qt.DropAction.CopyAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    window = MainWindow()
+    window.dragEnterEvent(event)
+    assert not event.isAccepted()
+
+
+def test_drop_event_arquivo_valido_atualiza_estado(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pathlib import Path
+
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
+
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: 60.0)
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile("/tmp/foo.mp4")])
+    event = QDropEvent(
+        QPointF(10.0, 10.0),
+        Qt.DropAction.CopyAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    window = MainWindow()
+    window.dropEvent(event)
+    assert window.selected_file == Path("/tmp/foo.mp4")
+    assert event.isAccepted()
