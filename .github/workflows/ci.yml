@@ -27,8 +27,18 @@ jobs:
       - name: Install Python 3.12 via uv
         run: uv python install 3.12
 
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg + libs do Qt (PySide6 headless)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ffmpeg \
+            libegl1 \
+            libgl1 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libdbus-1-3 \
+            libfontconfig1 \
+            libxcb-cursor0
 
       - name: Install dependencies
         run: uv sync
