@@ -49,6 +49,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RET", "PTH"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

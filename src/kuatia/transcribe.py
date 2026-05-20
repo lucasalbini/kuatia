@@ -145,7 +145,7 @@ def build_pipeline(model_dir: Path, device: str) -> Any:
         device=device,
         ov_config={"PERFORMANCE_HINT": "LATENCY"},
     )
-    processor = AutoProcessor.from_pretrained(model_dir)
+    processor = AutoProcessor.from_pretrained(model_dir)  # type: ignore[no-untyped-call]
     pipe = pipeline(
         "automatic-speech-recognition",
         model=model,
