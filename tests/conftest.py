@@ -1,16 +1,21 @@
-"""Fixtures comuns aos tests do core."""
+"""Fixtures comuns aos tests do core e da GUI."""
 
 from __future__ import annotations
 
+import os
 import struct
 import wave
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from kuatia.core.transcriber import Segment
-from kuatia.core.writers import DocxMeta
+# Qt headless: precisa estar setado ANTES de qualquer import de PySide6 nos tests.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from kuatia.core.transcriber import Segment  # noqa: E402
+from kuatia.core.writers import DocxMeta  # noqa: E402
 
 
 @pytest.fixture
@@ -51,3 +56,12 @@ def tiny_wav(tmp_path: Path) -> Path:
         wf.setframerate(sample_rate)
         wf.writeframes(silence)
     return out
+
+
+@pytest.fixture(scope="session")
+def qapp() -> Iterator[object]:
+    """`QApplication` única por sessão — Qt não permite múltiplas instâncias."""
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    yield app

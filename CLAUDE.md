@@ -22,14 +22,17 @@ uv run kuatia-transcribe "arquivo.mp4" --verbose            # logs DEBUG
 src/kuatia/
 ├── cli.py                 # entry point CLI (entry: kuatia-transcribe)
 ├── convert_model.py       # one-shot: HF → OpenVINO IR (entry: kuatia-convert)
-└── core/                  # API pura reutilizável (CLI + futura GUI)
-    ├── audio.py           # load_audio via ffmpeg
-    ├── errors.py          # AudioLoadError, ModelNotFoundError, TranscriptionError
-    ├── model_manager.py   # cache, download e conversão de modelos (HF Hub)
-    ├── transcriber.py     # Transcriber, Segment
-    └── writers.py         # write_txt, write_srt, write_vtt, write_docx
+├── core/                  # API pura reutilizável (CLI + GUI)
+│   ├── audio.py           # load_audio via ffmpeg
+│   ├── errors.py          # AudioLoadError, ModelNotFoundError, TranscriptionError
+│   ├── model_manager.py   # cache, download e conversão de modelos (HF Hub)
+│   ├── transcriber.py     # Transcriber, Segment
+│   └── writers.py         # write_txt, write_srt, write_vtt, write_docx
+└── gui/                   # GUI PySide6 (entry: kuatia-gui)
+    ├── app.py             # QApplication + main()
+    └── main_window.py     # MainWindow(QMainWindow) — esqueleto + features incrementais
 docs/adr/                  # ADRs
-tests/                     # pytest
+tests/                     # pytest (Qt headless: QT_QPA_PLATFORM=offscreen no conftest)
 models/                    # gitignored, modelos OV convertidos manualmente
 ```
 

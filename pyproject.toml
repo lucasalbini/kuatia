@@ -17,11 +17,13 @@ dependencies = [
     "soundfile>=0.12.1",
     "python-docx>=1.0.0",
     "huggingface-hub>=0.20.0",
+    "pyside6>=6.7.0",
 ]
 
 [project.scripts]
 kuatia-convert = "kuatia.convert_model:main"
 kuatia-transcribe = "kuatia.cli:main"
+kuatia-gui = "kuatia.gui.app:main"
 
 [dependency-groups]
 dev = [
