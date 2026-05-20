@@ -48,6 +48,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RET", "PTH"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
