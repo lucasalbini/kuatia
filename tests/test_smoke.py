@@ -12,11 +12,34 @@ def test_package_importa() -> None:
 
 
 def test_main_entrypoints_existem() -> None:
+    from kuatia.cli import main as transcribe_main
     from kuatia.convert_model import main as convert_main
-    from kuatia.transcribe import main as transcribe_main
 
     assert callable(convert_main)
     assert callable(transcribe_main)
+
+
+def test_core_api_importa() -> None:
+    from kuatia.core.audio import SAMPLE_RATE, load_audio
+    from kuatia.core.errors import (
+        AudioLoadError,
+        KuatiaError,
+        ModelNotFoundError,
+        TranscriptionError,
+    )
+    from kuatia.core.transcriber import Segment, Transcriber
+    from kuatia.core.writers import write_srt, write_txt, write_vtt
+
+    assert SAMPLE_RATE == 16_000
+    assert callable(load_audio)
+    assert callable(Transcriber)
+    assert callable(write_txt)
+    assert callable(write_srt)
+    assert callable(write_vtt)
+    assert issubclass(AudioLoadError, KuatiaError)
+    assert issubclass(ModelNotFoundError, KuatiaError)
+    assert issubclass(TranscriptionError, KuatiaError)
+    assert Segment(0.0, 1.0, "x").text == "x"
 
 
 @pytest.mark.parametrize(
@@ -30,13 +53,13 @@ def test_main_entrypoints_existem() -> None:
     ],
 )
 def test_format_timestamp(seconds: float, expected: str) -> None:
-    from kuatia.transcribe import _format_timestamp
+    from kuatia.core.writers import _format_timestamp
 
     assert _format_timestamp(seconds) == expected
 
 
-def test_iter_valid_chunks_filtra_vazios_e_sem_start() -> None:
-    from kuatia.transcribe import _iter_valid_chunks
+def test_chunks_to_segments_filtra_vazios_e_sem_start() -> None:
+    from kuatia.core.transcriber import Segment, _chunks_to_segments
 
     chunks = [
         {"timestamp": (0.0, 1.0), "text": "olá"},
@@ -45,9 +68,9 @@ def test_iter_valid_chunks_filtra_vazios_e_sem_start() -> None:
         {"timestamp": (4.0, 5.0), "text": "   "},  # texto vazio após strip
         {"timestamp": (6.0, 7.0), "text": "mundo"},
     ]
-    valid = _iter_valid_chunks(chunks)
-    assert valid == [
-        (0.0, 1.0, "olá"),
-        (3.0, 4.0, "fim faltando"),
-        (6.0, 7.0, "mundo"),
+    segments = _chunks_to_segments(chunks)
+    assert segments == [
+        Segment(0.0, 1.0, "olá"),
+        Segment(3.0, 4.0, "fim faltando"),
+        Segment(6.0, 7.0, "mundo"),
     ]

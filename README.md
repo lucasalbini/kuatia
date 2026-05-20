@@ -128,8 +128,13 @@ A fase atual é CLI. A próxima entrega é uma **GUI portátil para Windows** co
 .
 ├── pyproject.toml              # deps gerenciadas por uv
 ├── src/kuatia/
+│   ├── cli.py                  # entry point CLI (kuatia-transcribe)
 │   ├── convert_model.py        # exporta Whisper → OpenVINO IR
-│   └── transcribe.py           # pipeline principal
+│   └── core/                   # API pura reutilizável (CLI + futura GUI)
+│       ├── audio.py            # load_audio via ffmpeg
+│       ├── errors.py           # exceptions tipadas
+│       ├── transcriber.py      # Transcriber, Segment
+│       └── writers.py          # write_txt, write_srt, write_vtt
 ├── docs/adr/                   # Architecture Decision Records
 ├── tests/                      # pytest
 ├── models/                     # gitignored, modelos convertidos

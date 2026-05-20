@@ -19,8 +19,13 @@ uv run kuatia-transcribe "arquivo.mp4" --verbose            # logs DEBUG
 ## Estrutura
 ```
 src/kuatia/
+├── cli.py              # entry point CLI (entry: kuatia-transcribe)
 ├── convert_model.py    # one-shot: HF → OpenVINO IR (entry: kuatia-convert)
-└── transcribe.py       # CLI principal (entry: kuatia-transcribe)
+└── core/               # API pura reutilizável (CLI + futura GUI)
+    ├── audio.py        # load_audio via ffmpeg
+    ├── errors.py       # AudioLoadError, ModelNotFoundError, TranscriptionError
+    ├── transcriber.py  # Transcriber, Segment
+    └── writers.py      # write_txt, write_srt, write_vtt
 docs/adr/               # ADRs
 tests/                  # pytest
 models/                 # gitignored, modelos OV vão aqui
