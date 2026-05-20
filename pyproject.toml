@@ -19,7 +19,7 @@ dependencies = [
 
 [project.scripts]
 kuatia-convert = "kuatia.convert_model:main"
-kuatia-transcribe = "kuatia.transcribe:main"
+kuatia-transcribe = "kuatia.cli:main"
 
 [dependency-groups]
 dev = [

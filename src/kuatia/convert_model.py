@@ -1,7 +1,7 @@
 """Converte um modelo Whisper do HuggingFace para o formato OpenVINO IR.
 
 Esse passo é único por modelo. Depois de rodar, o diretório de saída pode ser
-carregado direto pelo `transcribe.py` em qualquer device suportado (CPU/GPU/NPU).
+carregado direto pelo `kuatia-transcribe` em qualquer device suportado (CPU/GPU/NPU).
 
 Exemplo:
     uv run kuatia-convert --model openai/whisper-large-v3 --out models/whisper-large-v3-ov
