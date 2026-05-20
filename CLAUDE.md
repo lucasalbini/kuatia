@@ -26,6 +26,12 @@ tests/                  # pytest
 models/                 # gitignored, modelos OV vão aqui
 ```
 
+## Git workflow (override local)
+- **Posso (Claude) revisar e mergear PRs automatizadas em `dev` neste projeto.** Override do default global (no global, só Lucas mergeia).
+- Critérios obrigatórios antes do merge: CI verde, self-review com `/review` aplicado, sem comentários abertos pendentes, sem mudança fora do escopo da issue.
+- **Squash merge** na entrada da `dev` (mantém histórico limpo). Mensagem do squash usa o título da PR.
+- Continua valendo: merge `dev → prod` é manual do Lucas. Nunca mergeio em `prod`.
+
 ## Convenções específicas
 - **Sem async.** É script CLI síncrono CPU/GPU-bound; o default global de `async em todo I/O` não se aplica aqui.
 - **`subprocess` + `ffmpeg` para decodificar áudio**, não `librosa.load` direto — librosa não lê mp4 nativamente e o pipeline via audioread é frágil no Windows.
