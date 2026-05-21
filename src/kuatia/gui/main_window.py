@@ -30,16 +30,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from kuatia.core.model_manager import available_models, is_model_ready, model_dir
+from kuatia.core.model_manager import (
+    available_models,
+    get_model_info,
+    is_model_ready,
+    model_dir,
+)
 from kuatia.core.transcriber import Segment
 from kuatia.core.writers import DocxMeta
 from kuatia.gui.devices import default_device, detect_devices, device_label
+from kuatia.gui.download_worker import DownloadWorker
 from kuatia.gui.file_picker import (
     FILE_DIALOG_FILTER,
     all_supported,
     format_duration_short,
     get_audio_duration,
     is_supported,
+)
+from kuatia.gui.first_run import (
+    FirstRunChoice,
+    FirstRunDialog,
+    is_manual_model_dir_valid,
 )
 from kuatia.gui.output import (
     at_least_one_selected,
@@ -72,6 +83,9 @@ class MainWindow(QMainWindow):
         self._selected_file: Path | None = None
         self._worker: TranscribeWorker | None = None
         self._worker_thread: QThread | None = None
+        self._download_worker: DownloadWorker | None = None
+        self._download_thread: QThread | None = None
+        self._manual_model_dir: Path | None = None
         self._last_segments: list[Segment] = []
         self._last_output_dir: Path | None = None
         self._build_ui()
@@ -320,16 +334,14 @@ class MainWindow(QMainWindow):
             return
 
         model_name = self.model_combo.currentData()
-        if not is_model_ready(model_name):
+        target_dir = self._resolve_model_dir(model_name)
+        if target_dir is None:
             self._show_message(
-                f"O modelo {model_name!r} ainda não foi baixado.\n\n"
-                "Esse passo será automatizado pelo dialog da issue #11. Por enquanto, "
-                "rode `kuatia-transcribe --model " + model_name + " <arquivo>` uma vez "
-                "no CLI pra cachear o modelo, ou aponte um diretório existente."
+                f"O modelo {model_name!r} ainda não está pronto.\n\n"
+                "Reabra o app pra ver o diálogo de download, ou aponte uma pasta "
+                "com modelo OpenVINO IR via 'Apontar modelo manualmente'."
             )
             return
-
-        target_dir = model_dir(model_name)
         device = self.device_combo.currentData() or "CPU"
         language = self.language_combo.currentData() or "portuguese"
         task = self.task_combo.currentData() or "transcribe"
@@ -454,6 +466,122 @@ class MainWindow(QMainWindow):
 
     def _show_message(self, text: str) -> None:
         QMessageBox.information(self, "Kuatia", text)
+
+    # ---- First-run / download de modelo (issue #11) ----
+
+    def check_first_run(self) -> None:
+        """Verifica se o modelo default está pronto; se não, mostra dialog modal.
+
+        Idempotente — pode ser chamado mais de uma vez sem efeito colateral.
+        Chamado pelo `app.py` depois de `window.show()`.
+        """
+        model_name = self.model_combo.currentData()
+        if model_name is None:
+            return
+        if is_model_ready(model_name) or self._manual_model_dir is not None:
+            return
+
+        info = get_model_info(model_name)
+        dialog = FirstRunDialog(model_name=info.name, size_mb=info.size_mb, parent=self)
+        dialog.exec()
+        choice = dialog.choice
+
+        if choice == FirstRunChoice.DOWNLOAD:
+            self._start_download(model_name)
+        elif choice == FirstRunChoice.MANUAL:
+            self._pick_manual_model_dir()
+        else:
+            self._mark_model_not_loaded(model_name)
+
+    def _mark_model_not_loaded(self, model_name: str) -> None:
+        self.append_log(
+            f"Modelo {model_name!r} não carregado. "
+            "Use 'Apontar modelo manualmente' ou reabra o app pra baixar."
+        )
+        self.transcribe_button.setEnabled(False)
+        self.transcribe_button.setToolTip(
+            "Modelo ainda não carregado — pule o dialog de 1º run pra usar."
+        )
+
+    def _pick_manual_model_dir(self) -> None:
+        from PySide6.QtWidgets import QFileDialog as _FD
+
+        path_str = _FD.getExistingDirectory(
+            self,
+            "Selecionar pasta do modelo OpenVINO IR",
+            str(Path.home()),
+        )
+        if not path_str:
+            self._mark_model_not_loaded(self.model_combo.currentData() or "?")
+            return
+        candidate = Path(path_str)
+        if not is_manual_model_dir_valid(candidate):
+            self._show_message(
+                f"A pasta {candidate} não parece conter um modelo OpenVINO IR válido "
+                "(faltam arquivos `openvino_*.xml`). Tente outra pasta."
+            )
+            self._mark_model_not_loaded(self.model_combo.currentData() or "?")
+            return
+        self._manual_model_dir = candidate
+        self.append_log(f"Modelo manual registrado: {candidate}")
+        self.transcribe_button.setEnabled(True)
+        self.transcribe_button.setToolTip("")
+
+    def _start_download(self, model_name: str) -> None:
+        worker = DownloadWorker(model_name)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_worker_progress)
+        worker.log_line.connect(self.append_log)
+        worker.finished.connect(self._on_download_finished)
+        worker.error.connect(self._on_download_error)
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        thread.finished.connect(self._teardown_download)
+
+        self._download_worker = worker
+        self._download_thread = thread
+        self.transcribe_button.setEnabled(False)
+        self.transcribe_button.setToolTip("Aguardando download do modelo terminar.")
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+        thread.start()
+
+    def _on_download_finished(self, path: Path) -> None:
+        self.append_log(f"Modelo baixado e pronto: {path}")
+        self.progress.setVisible(False)
+        self.progress.setValue(0)
+        self.transcribe_button.setEnabled(True)
+        self.transcribe_button.setToolTip("")
+
+    def _on_download_error(self, msg: str) -> None:
+        self.append_log(f"ERRO no download: {msg}")
+        self._show_message(f"Falha ao baixar modelo:\n\n{msg}")
+        self.progress.setVisible(False)
+        self.progress.setValue(0)
+        self._mark_model_not_loaded(self.model_combo.currentData() or "?")
+
+    def _teardown_download(self) -> None:
+        if self._download_thread is not None:
+            self._download_thread.deleteLater()
+        if self._download_worker is not None:
+            self._download_worker.deleteLater()
+        self._download_worker = None
+        self._download_thread = None
+
+    def _resolve_model_dir(self, model_name: str) -> Path | None:
+        """Retorna o path do modelo (manual ou cache). `None` se nada está pronto."""
+        if self._manual_model_dir is not None:
+            return self._manual_model_dir
+        if is_model_ready(model_name):
+            return model_dir(model_name)
+        return None
+
+    @property
+    def manual_model_dir(self) -> Path | None:
+        return self._manual_model_dir
 
     def _on_open_folder_clicked(self) -> None:
         if self._last_output_dir is None:

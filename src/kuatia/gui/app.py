@@ -15,6 +15,7 @@ def main() -> None:
     app.setOrganizationName("Kuatia")
     window = MainWindow()
     window.show()
+    window.check_first_run()
     sys.exit(app.exec())
 
 
