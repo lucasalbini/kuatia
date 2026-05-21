@@ -31,7 +31,7 @@ def test_main_window_inicializa(qapp: object) -> None:
 def test_progress_bar_escondida_no_inicio(qapp: object) -> None:
     window = MainWindow()
     assert isinstance(window.progress, QProgressBar)
-    assert not window.progress.isVisible()
+    assert window.progress.isHidden() is True
     assert window.progress.value() == 0
 
 
@@ -78,6 +78,12 @@ def test_combo_task_mapeia_para_valor_interno(qapp: object) -> None:
     window = MainWindow()
     data = [window.task_combo.itemData(i) for i in range(window.task_combo.count())]
     assert data == ["transcribe", "translate"]
+
+
+def test_combo_language_mapeia_para_codigo_whisper(qapp: object) -> None:
+    window = MainWindow()
+    data = [window.language_combo.itemData(i) for i in range(window.language_combo.count())]
+    assert data == ["portuguese", "english", "spanish", "auto"]
 
 
 def test_checkboxes_de_export_defaults(qapp: object) -> None:
@@ -272,3 +278,142 @@ def test_drop_event_arquivo_valido_atualiza_estado(
     window.dropEvent(event)
     assert window.selected_file == Path("/tmp/foo.mp4")
     assert event.isAccepted()
+
+
+# ---- Worker / botão Transcrever (issue #9) ----
+
+
+def test_transcribe_sem_arquivo_mostra_mensagem(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sem arquivo selecionado, click no botão exibe mensagem e não inicia worker."""
+    msgs: list[str] = []
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.MainWindow._show_message",
+        lambda self, text: msgs.append(text),
+    )
+    window = MainWindow()
+    assert window.selected_file is None
+    window.transcribe_button.click()
+    assert any("Escolha um arquivo" in m for m in msgs)
+    assert window.is_running is False
+
+
+def test_transcribe_modelo_nao_pronto_mostra_mensagem(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Modelo não cacheado: dispara mensagem (issue #11 vai fazer o dialog)."""
+    from pathlib import Path
+
+    msgs: list[str] = []
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.MainWindow._show_message",
+        lambda self, text: msgs.append(text),
+    )
+    monkeypatch.setattr("kuatia.gui.main_window.is_model_ready", lambda _name: False)
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: None)
+
+    window = MainWindow()
+    window.set_selected_file(Path("/tmp/foo.mp4"))
+    window.transcribe_button.click()
+    assert any("ainda não foi baixado" in m for m in msgs)
+    assert window.is_running is False
+
+
+def test_transcribe_inicia_worker_e_botao_vira_cancelar(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Click no botão com tudo certo: cria worker, thread, transforma botão em Cancelar."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("kuatia.gui.main_window.is_model_ready", lambda _name: True)
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.model_dir",
+        lambda name: Path("/tmp/cache") / name,
+    )
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: 60.0)
+
+    started: list[str] = []
+
+    class _FakeSignal:
+        def connect(self, _fn: object) -> None:
+            pass
+
+    class _FakeThread:
+        started = _FakeSignal()
+        finished = _FakeSignal()
+
+        def __init__(self, _parent: object | None = None) -> None:
+            pass
+
+        def start(self) -> None:
+            started.append("start")
+
+        def quit(self) -> None:
+            started.append("quit")
+
+        def deleteLater(self) -> None:  # noqa: N802
+            pass
+
+    monkeypatch.setattr("kuatia.gui.main_window.QThread", _FakeThread)
+    monkeypatch.setattr("kuatia.gui.main_window.make_transcriber", lambda: object())
+
+    fake_worker = MagicMock()
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.TranscribeWorker",
+        lambda **_kwargs: fake_worker,
+    )
+
+    window = MainWindow()
+    window.set_selected_file(Path("/tmp/foo.mp4"))
+    window.transcribe_button.click()
+
+    assert window.is_running is True
+    assert window.transcribe_button.text() == "Cancelar"
+    # janela não está show()ada nos tests; isHidden() reflete o setVisible(True)
+    assert window.progress.isHidden() is False
+    assert started == ["start"]
+
+
+def test_on_worker_progress_atualiza_progress_bar(qapp: object) -> None:
+    window = MainWindow()
+    window._on_worker_progress(42)
+    assert window.progress.value() == 42
+
+
+def test_on_worker_finished_guarda_segments_e_volta_estado(qapp: object) -> None:
+    from kuatia.core.transcriber import Segment
+
+    window = MainWindow()
+    window._enter_running_state()
+    segs = [Segment(0.0, 1.0, "olá")]
+    window._on_worker_finished(segs)
+    assert window.last_segments == segs
+    assert window.transcribe_button.text() == "Transcrever"
+    assert window.progress.isHidden() is True
+
+
+def test_on_worker_error_mostra_no_log_e_volta_estado(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    msgs: list[str] = []
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.MainWindow._show_message",
+        lambda self, text: msgs.append(text),
+    )
+    window = MainWindow()
+    window._enter_running_state()
+    window._on_worker_error("boom")
+    assert "ERRO: boom" in window.log_view.toPlainText()
+    assert any("boom" in m for m in msgs)
+    assert window.transcribe_button.text() == "Transcrever"
+
+
+def test_on_worker_cancelled_volta_estado(qapp: object) -> None:
+    window = MainWindow()
+    window._enter_running_state()
+    window._on_worker_cancelled()
+    assert "cancelada" in window.log_view.toPlainText().lower()
+    assert window.transcribe_button.text() == "Transcrever"
+    assert window.progress.isHidden() is True
