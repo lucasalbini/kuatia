@@ -137,6 +137,9 @@ pwsh build\package.ps1
 `dist\kuatia\kuatia.exe` é o executável. O `.zip` portátil inclui um `README.txt`
 com instruções pro usuário final (descompactar + instalar ffmpeg + 1º run baixa modelo).
 
+Antes de cada release MVP, executar o **smoke E2E em VM Windows limpa**:
+`docs/release-checklist.md`.
+
 ## Estrutura
 
 ```
