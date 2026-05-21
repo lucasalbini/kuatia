@@ -318,7 +318,7 @@ def test_transcribe_modelo_nao_pronto_mostra_mensagem(
     window = MainWindow()
     window.set_selected_file(Path("/tmp/foo.mp4"))
     window.transcribe_button.click()
-    assert any("ainda não foi baixado" in m for m in msgs)
+    assert any("ainda não está pronto" in m for m in msgs)
     assert window.is_running is False
 
 
