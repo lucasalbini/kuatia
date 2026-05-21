@@ -122,19 +122,36 @@ A fase atual é CLI. A próxima entrega é uma **GUI portátil para Windows** co
 
 **Transcrição com lacunas/repetições**: large-v3 é melhor em PT-BR mas pode alucinar em trechos de silêncio. Não há fix simples; corte silêncios longos antes ou use `--language portuguese` explicitamente.
 
+## Build / distribuição
+
+A versão portátil pra Windows é gerada via PyInstaller `--onedir --windowed`:
+
+```powershell
+# Gera dist\kuatia\kuatia.exe
+pwsh build\build.ps1
+
+# Empacota em dist\kuatia-portable-v<X.Y.Z>.zip
+pwsh build\package.ps1
+```
+
+`dist\kuatia\kuatia.exe` é o executável. O `.zip` portátil inclui um `README.txt`
+com instruções pro usuário final (descompactar + instalar ffmpeg + 1º run baixa modelo).
+
 ## Estrutura
 
 ```
 .
 ├── pyproject.toml              # deps gerenciadas por uv
+├── build/                      # PyInstaller spec + scripts de empacotamento
+│   ├── kuatia.spec
+│   ├── build.ps1
+│   ├── package.ps1
+│   └── package.py
 ├── src/kuatia/
 │   ├── cli.py                  # entry point CLI (kuatia-transcribe)
 │   ├── convert_model.py        # exporta Whisper → OpenVINO IR
-│   └── core/                   # API pura reutilizável (CLI + futura GUI)
-│       ├── audio.py            # load_audio via ffmpeg
-│       ├── errors.py           # exceptions tipadas
-│       ├── transcriber.py      # Transcriber, Segment
-│       └── writers.py          # write_txt, write_srt, write_vtt
+│   ├── core/                   # API pura (audio, transcriber, writers, model_manager)
+│   └── gui/                    # GUI PySide6 (entry: kuatia-gui)
 ├── docs/adr/                   # Architecture Decision Records
 ├── tests/                      # pytest
 ├── models/                     # gitignored, modelos convertidos
