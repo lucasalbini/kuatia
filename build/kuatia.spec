@@ -81,6 +81,14 @@ a = Analysis(
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
+    # transformers e optimum usam `inspect.getsource()` nos decorators de doc
+    # (@add_start_docstrings, etc). Sem os .py originais (só bytecode no PYZ),
+    # `inspect.getsource` lança OSError no import. Mantemos .py + .pyc desses
+    # pacotes pra os decorators acharem o source.
+    module_collection_mode={
+        "transformers": "pyz+py",
+        "optimum": "pyz+py",
+    },
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
