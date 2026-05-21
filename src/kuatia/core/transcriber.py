@@ -3,6 +3,9 @@
 A classe `Transcriber` separa carregamento de modelo (caro, idempotente)
 de transcrição (chamável N vezes). Callbacks `on_progress` / `on_log`
 permitem que a GUI receba eventos sem depender do logger global.
+
+`optimum` e `transformers` são lazy-importados em `_build_pipeline` —
+sem isso, simplesmente importar este módulo carrega ~16s de Python na GUI.
 """
 
 from __future__ import annotations
@@ -15,8 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from optimum.intel.openvino import OVModelForSpeechSeq2Seq
-from transformers import AutoProcessor, pipeline
 
 from kuatia.core.audio import SAMPLE_RATE
 from kuatia.core.errors import ModelNotFoundError, TranscriptionError
@@ -52,6 +53,31 @@ def _chunks_to_segments(chunks: list[dict[str, Any]]) -> list[Segment]:
     return valid
 
 
+def _build_pipeline(model_dir: Path, device: str) -> Any:
+    """Carrega modelo + processor + monta o pipeline ASR. Lazy import das deps pesadas.
+
+    Boundary testável: tests da `Transcriber` mockam esta função em vez de
+    cada classe individual do `optimum`/`transformers`.
+    """
+    from optimum.intel.openvino import OVModelForSpeechSeq2Seq
+    from transformers import AutoProcessor, pipeline
+
+    model = OVModelForSpeechSeq2Seq.from_pretrained(
+        model_dir,
+        device=device,
+        ov_config={"PERFORMANCE_HINT": "LATENCY"},
+    )
+    processor = AutoProcessor.from_pretrained(model_dir)  # type: ignore[no-untyped-call]
+    return pipeline(
+        "automatic-speech-recognition",
+        model=model,
+        tokenizer=processor.tokenizer,
+        feature_extractor=processor.feature_extractor,
+        chunk_length_s=30,
+        return_timestamps=True,
+    )
+
+
 class Transcriber:
     """Carrega modelo Whisper + OpenVINO e transcreve áudios.
 
@@ -73,20 +99,7 @@ class Transcriber:
 
         log.info("modelo: carregando %s no device=%s", model_dir.name, device)
         started = time.perf_counter()
-        model = OVModelForSpeechSeq2Seq.from_pretrained(
-            model_dir,
-            device=device,
-            ov_config={"PERFORMANCE_HINT": "LATENCY"},
-        )
-        processor = AutoProcessor.from_pretrained(model_dir)  # type: ignore[no-untyped-call]
-        self._pipeline = pipeline(
-            "automatic-speech-recognition",
-            model=model,
-            tokenizer=processor.tokenizer,
-            feature_extractor=processor.feature_extractor,
-            chunk_length_s=30,
-            return_timestamps=True,
-        )
+        self._pipeline = _build_pipeline(model_dir, device)
         self._loaded = (model_dir, device)
         log.info("modelo: pronto em %.1fs", time.perf_counter() - started)
 

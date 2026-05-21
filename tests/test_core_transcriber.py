@@ -14,26 +14,12 @@ from kuatia.core.transcriber import Segment, Transcriber, _chunks_to_segments
 
 
 def _patch_pipeline(monkeypatch: pytest.MonkeyPatch, pipeline_return: dict[str, Any]) -> MagicMock:
-    """Substitui as três funções pesadas no módulo `transcriber` por mocks.
+    """Substitui `_build_pipeline` por um mock que devolve um callable.
 
     Retorna o `pipeline` mockado (`callable`) pra o teste inspecionar chamadas.
     """
     fake_pipe = MagicMock(return_value=pipeline_return)
-    fake_model = MagicMock()
-    fake_processor = MagicMock(tokenizer=MagicMock(), feature_extractor=MagicMock())
-
-    monkeypatch.setattr(
-        "kuatia.core.transcriber.OVModelForSpeechSeq2Seq.from_pretrained",
-        lambda *_a, **_kw: fake_model,
-    )
-    monkeypatch.setattr(
-        "kuatia.core.transcriber.AutoProcessor.from_pretrained",
-        lambda *_a, **_kw: fake_processor,
-    )
-    monkeypatch.setattr(
-        "kuatia.core.transcriber.pipeline",
-        lambda *_a, **_kw: fake_pipe,
-    )
+    monkeypatch.setattr("kuatia.core.transcriber._build_pipeline", lambda *_a, **_kw: fake_pipe)
     return fake_pipe
 
 
@@ -81,16 +67,8 @@ def test_load_model_recarrega_se_device_muda(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Pipeline é instanciado de novo quando o device muda."""
-    monkeypatch.setattr(
-        "kuatia.core.transcriber.OVModelForSpeechSeq2Seq.from_pretrained",
-        lambda *_a, **_kw: MagicMock(),
-    )
-    monkeypatch.setattr(
-        "kuatia.core.transcriber.AutoProcessor.from_pretrained",
-        lambda *_a, **_kw: MagicMock(tokenizer=MagicMock(), feature_extractor=MagicMock()),
-    )
-    # Cada chamada retorna um MagicMock distinto pra comprovar reload.
-    monkeypatch.setattr("kuatia.core.transcriber.pipeline", lambda *_a, **_kw: MagicMock())
+    # Cada chamada de `_build_pipeline` retorna um MagicMock distinto pra comprovar reload.
+    monkeypatch.setattr("kuatia.core.transcriber._build_pipeline", lambda *_a, **_kw: MagicMock())
     model_dir = tmp_path / "model"
     model_dir.mkdir()
 
@@ -176,15 +154,7 @@ def test_transcribe_propaga_falha_do_pipeline(
 ) -> None:
     """Exception do pipeline vira `TranscriptionError`."""
     fake_pipe = MagicMock(side_effect=RuntimeError("boom"))
-    monkeypatch.setattr(
-        "kuatia.core.transcriber.OVModelForSpeechSeq2Seq.from_pretrained",
-        lambda *_a, **_kw: MagicMock(),
-    )
-    monkeypatch.setattr(
-        "kuatia.core.transcriber.AutoProcessor.from_pretrained",
-        lambda *_a, **_kw: MagicMock(tokenizer=MagicMock(), feature_extractor=MagicMock()),
-    )
-    monkeypatch.setattr("kuatia.core.transcriber.pipeline", lambda *_a, **_kw: fake_pipe)
+    monkeypatch.setattr("kuatia.core.transcriber._build_pipeline", lambda *_a, **_kw: fake_pipe)
     model_dir = tmp_path / "model"
     model_dir.mkdir()
 
