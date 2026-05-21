@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from kuatia.core.model_manager import available_models, is_model_ready, model_dir
 from kuatia.core.transcriber import Segment
+from kuatia.core.writers import DocxMeta
 from kuatia.gui.devices import default_device, detect_devices, device_label
 from kuatia.gui.file_picker import (
     FILE_DIALOG_FILTER,
@@ -39,6 +40,12 @@ from kuatia.gui.file_picker import (
     format_duration_short,
     get_audio_duration,
     is_supported,
+)
+from kuatia.gui.output import (
+    at_least_one_selected,
+    export_outputs,
+    open_in_file_manager,
+    selected_formats,
 )
 from kuatia.gui.worker import TranscribeWorker, make_transcriber
 
@@ -66,6 +73,7 @@ class MainWindow(QMainWindow):
         self._worker: TranscribeWorker | None = None
         self._worker_thread: QThread | None = None
         self._last_segments: list[Segment] = []
+        self._last_output_dir: Path | None = None
         self._build_ui()
         self.transcribe_button.clicked.connect(self._on_transcribe_clicked)
 
@@ -174,7 +182,7 @@ class MainWindow(QMainWindow):
         export_box = QGroupBox("Formatos de saída", panel)
         export_layout = QHBoxLayout(export_box)
         self.export_checks: dict[str, QCheckBox] = {}
-        for fmt, default_on in (("txt", True), ("srt", True), ("vtt", False), ("docx", False)):
+        for fmt, default_on in (("txt", True), ("srt", True), ("vtt", False), ("docx", True)):
             cb = QCheckBox(f".{fmt}")
             cb.setChecked(default_on)
             export_layout.addWidget(cb)
@@ -185,6 +193,12 @@ class MainWindow(QMainWindow):
         self.transcribe_button = QPushButton("Transcrever")
         self.transcribe_button.setMinimumHeight(36)
         outer.addWidget(self.transcribe_button)
+
+        self.open_folder_button = QPushButton("Abrir pasta de saída…")
+        self.open_folder_button.setMinimumHeight(32)
+        self.open_folder_button.setVisible(False)
+        self.open_folder_button.clicked.connect(self._on_open_folder_clicked)
+        outer.addWidget(self.open_folder_button)
 
         outer.addStretch(1)
         return panel
@@ -301,6 +315,10 @@ class MainWindow(QMainWindow):
             self._show_message("Escolha um arquivo de áudio/vídeo antes de transcrever.")
             return
 
+        if not at_least_one_selected(self._formats_state()):
+            self._show_message("Marque pelo menos um formato de saída antes de transcrever.")
+            return
+
         model_name = self.model_combo.currentData()
         if not is_model_ready(model_name):
             self._show_message(
@@ -381,7 +399,41 @@ class MainWindow(QMainWindow):
     def _on_worker_finished(self, segments: list[Segment]) -> None:
         self._last_segments = segments
         self.append_log(f"Transcrição concluída: {len(segments)} segments.")
+        if self._selected_file is not None:
+            self._export_and_record(segments, self._selected_file)
         self._leave_running_state()
+
+    def _export_and_record(self, segments: list[Segment], input_path: Path) -> None:
+        formats = self._formats_state()
+        if not any(formats.values()):
+            self.append_log("Nenhum formato marcado — pulando export.")
+            return
+        out_dir = input_path.parent
+        base = out_dir / input_path.stem
+        from datetime import datetime
+
+        meta = DocxMeta(
+            input_name=input_path.name,
+            duration_sec=None,
+            model_name=self.model_combo.currentData(),
+            generated_at=datetime.now(),
+        )
+        try:
+            generated = export_outputs(segments, base, formats, docx_meta=meta)
+        except OSError as exc:
+            self.append_log(f"ERRO ao salvar arquivos: {exc}")
+            return
+        for p in generated:
+            self.append_log(f"saída: {p}")
+        self.append_log(
+            f"Formatos exportados ({len(generated)}): "
+            f"{', '.join('.' + f for f in selected_formats(formats))}."
+        )
+        self._last_output_dir = out_dir
+        self.open_folder_button.setVisible(True)
+
+    def _formats_state(self) -> dict[str, bool]:
+        return {fmt: cb.isChecked() for fmt, cb in self.export_checks.items()}
 
     def _on_worker_error(self, message: str) -> None:
         self.append_log(f"ERRO: {message}")
@@ -403,7 +455,18 @@ class MainWindow(QMainWindow):
     def _show_message(self, text: str) -> None:
         QMessageBox.information(self, "Kuatia", text)
 
+    def _on_open_folder_clicked(self) -> None:
+        if self._last_output_dir is None:
+            return
+        ok = open_in_file_manager(self._last_output_dir)
+        if not ok:
+            self._show_message(f"Não consegui abrir {self._last_output_dir}.")
+
     @property
     def last_segments(self) -> list[Segment]:
         """Último resultado emitido por `finished` — vazio se nada rodou ainda."""
         return list(self._last_segments)
+
+    @property
+    def last_output_dir(self) -> Path | None:
+        return self._last_output_dir

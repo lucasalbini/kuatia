@@ -6,6 +6,8 @@ porque #6 entrega só o esqueleto. Issues #7+ adicionam tests de interação.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -92,7 +94,7 @@ def test_checkboxes_de_export_defaults(qapp: object) -> None:
     assert window.export_checks["txt"].isChecked() is True
     assert window.export_checks["srt"].isChecked() is True
     assert window.export_checks["vtt"].isChecked() is False
-    assert window.export_checks["docx"].isChecked() is False
+    assert window.export_checks["docx"].isChecked() is True
     for cb in window.export_checks.values():
         assert isinstance(cb, QCheckBox)
 
@@ -417,3 +419,130 @@ def test_on_worker_cancelled_volta_estado(qapp: object) -> None:
     assert "cancelada" in window.log_view.toPlainText().lower()
     assert window.transcribe_button.text() == "Transcrever"
     assert window.progress.isHidden() is True
+
+
+# ---- Export checkboxes / abrir pasta (issue #10) ----
+
+
+def test_transcribe_sem_formato_marcado_mostra_mensagem(
+    qapp: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pathlib import Path
+
+    msgs: list[str] = []
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.MainWindow._show_message",
+        lambda self, text: msgs.append(text),
+    )
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: None)
+    monkeypatch.setattr("kuatia.gui.main_window.is_model_ready", lambda _name: True)
+
+    window = MainWindow()
+    window.set_selected_file(Path("/tmp/foo.mp4"))
+    for cb in window.export_checks.values():
+        cb.setChecked(False)
+    window.transcribe_button.click()
+    assert any("Marque pelo menos" in m for m in msgs)
+    assert window.is_running is False
+
+
+def test_open_folder_button_hidden_inicialmente(qapp: object) -> None:
+    window = MainWindow()
+    assert window.open_folder_button.isHidden() is True
+    assert window.last_output_dir is None
+
+
+def test_on_worker_finished_exporta_e_revela_botao(
+    qapp: object, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from kuatia.core.transcriber import Segment
+
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: None)
+    captured: dict[str, object] = {}
+
+    def fake_export(
+        segments: list[Segment],
+        base_path: Path,
+        formats: dict[str, bool],
+        docx_meta: object = None,
+    ) -> list[Path]:
+        captured["segments"] = list(segments)
+        captured["base"] = base_path
+        captured["formats"] = dict(formats)
+        return [base_path.with_suffix(".txt"), base_path.with_suffix(".srt")]
+
+    monkeypatch.setattr("kuatia.gui.main_window.export_outputs", fake_export)
+
+    input_path = tmp_path / "exemplo.mp4"
+    input_path.write_bytes(b"")  # arquivo só pro Path.parent existir
+
+    window = MainWindow()
+    window.set_selected_file(input_path)
+    segs = [Segment(0.0, 1.0, "olá")]
+    window._on_worker_finished(segs)
+
+    assert captured["segments"] == segs
+    assert captured["base"] == input_path.parent / input_path.stem
+    formats = captured["formats"]
+    assert isinstance(formats, dict)
+    assert formats["txt"] is True
+    assert formats["docx"] is True  # default novo
+    assert window.last_output_dir == input_path.parent
+    assert window.open_folder_button.isHidden() is False
+
+
+def test_on_worker_finished_export_oserror_loga_erro(
+    qapp: object, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from kuatia.core.transcriber import Segment
+
+    monkeypatch.setattr("kuatia.gui.main_window.get_audio_duration", lambda _p: None)
+
+    def bad_export(*_args: object, **_kwargs: object) -> list[Path]:
+        raise OSError("disco cheio")
+
+    monkeypatch.setattr("kuatia.gui.main_window.export_outputs", bad_export)
+
+    input_path = tmp_path / "exemplo.mp4"
+    input_path.write_bytes(b"")
+
+    window = MainWindow()
+    window.set_selected_file(input_path)
+    window._on_worker_finished([Segment(0.0, 1.0, "olá")])
+    assert "ERRO ao salvar" in window.log_view.toPlainText()
+    assert window.open_folder_button.isHidden() is True
+
+
+def test_open_folder_clicked_chama_helper(
+    qapp: object, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[Path] = []
+
+    def fake_open(path: Path) -> bool:
+        calls.append(path)
+        return True
+
+    monkeypatch.setattr("kuatia.gui.main_window.open_in_file_manager", fake_open)
+
+    window = MainWindow()
+    window._last_output_dir = tmp_path
+    window.open_folder_button.setVisible(True)
+    window.open_folder_button.click()
+    assert calls == [tmp_path]
+
+
+def test_open_folder_falha_mostra_mensagem(
+    qapp: object, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("kuatia.gui.main_window.open_in_file_manager", lambda _p: False)
+    msgs: list[str] = []
+    monkeypatch.setattr(
+        "kuatia.gui.main_window.MainWindow._show_message",
+        lambda self, text: msgs.append(text),
+    )
+
+    window = MainWindow()
+    window._last_output_dir = tmp_path
+    window.open_folder_button.setVisible(True)
+    window.open_folder_button.click()
+    assert any("Não consegui abrir" in m for m in msgs)
