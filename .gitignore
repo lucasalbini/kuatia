@@ -4,7 +4,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
+# build/ existe versionado pra scripts de PyInstaller; só ignoramos os artefatos de saída.
+build/pyinstaller-work/
+build/kuatia/
 dist/
 *.egg-info/
 *.egg
