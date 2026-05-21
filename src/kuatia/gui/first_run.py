@@ -1,7 +1,7 @@
 """Dialog de primeira execução: oferece baixar o modelo ou apontar um manual.
 
-Exposto como `FirstRunChoice` (enum) + `FirstRunDialog(QDialog)`. O caller
-(`MainWindow`) usa o resultado pra decidir o próximo passo.
+`QDialog` simples + widgets Fluent dentro — comportamento previsível em tests
+(windowTitle, exec, result funcionam como QDialog padrão).
 """
 
 from __future__ import annotations
@@ -10,14 +10,8 @@ from enum import Enum
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, PrimaryPushButton, PushButton, SubtitleLabel
 
 # Mesmo sentinela usado por `core.model_manager.is_model_ready`.
 _READY_SENTINEL = "openvino_encoder_model.xml"
@@ -43,22 +37,18 @@ class FirstRunDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Kuatia — Primeira execução")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(500)
         self._choice: FirstRunChoice = FirstRunChoice.CLOSED
         self._build_ui(model_name, size_mb)
 
     def _build_ui(self, model_name: str, size_mb: int) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(10)
 
-        title = QLabel(f"Baixar modelo {model_name}?")
-        font = title.font()
-        font.setPointSize(14)
-        font.setBold(True)
-        title.setFont(font)
+        title = SubtitleLabel(f"Baixar modelo {model_name}?")
 
-        body = QLabel(
+        body = BodyLabel(
             f"É necessário baixar o modelo Whisper {model_name} (~{size_mb} MB).\n"
             "O download acontece uma vez; runs seguintes usam o cache local.\n\n"
             "Você também pode apontar um diretório com um modelo OpenVINO IR já "
@@ -68,18 +58,20 @@ class FirstRunDialog(QDialog):
         body.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         layout.addWidget(title)
+        layout.addSpacing(4)
         layout.addWidget(body)
+        layout.addSpacing(12)
 
         button_row = QHBoxLayout()
         button_row.setSpacing(8)
 
-        self.skip_button = QPushButton("Pular")
+        self.skip_button = PushButton("Pular")
         self.skip_button.clicked.connect(self._on_skip)
 
-        self.manual_button = QPushButton("Apontar modelo manualmente…")
+        self.manual_button = PushButton("Apontar modelo manualmente…")
         self.manual_button.clicked.connect(self._on_manual)
 
-        self.download_button = QPushButton(f"Baixar agora (~{size_mb} MB)")
+        self.download_button = PrimaryPushButton(f"Baixar agora (~{size_mb} MB)")
         self.download_button.setDefault(True)
         self.download_button.clicked.connect(self._on_download)
 

@@ -40,6 +40,9 @@ HIDDEN_IMPORTS = [
     "PySide6.QtCore",
     "PySide6.QtGui",
     "PySide6.QtWidgets",
+    # Fluent UI
+    "qfluentwidgets",
+    "qframelesswindow",
     # python-docx
     "docx",
     "docx.oxml",
@@ -48,6 +51,8 @@ HIDDEN_IMPORTS = [
 # Submódulos dinâmicos (transformers carrega `models.<arch>` por reflection).
 HIDDEN_IMPORTS += collect_submodules("transformers.models.whisper")
 HIDDEN_IMPORTS += collect_submodules("optimum.intel")
+HIDDEN_IMPORTS += collect_submodules("qfluentwidgets")
+HIDDEN_IMPORTS += collect_submodules("qframelesswindow")
 
 DATAS = []
 DATAS += collect_data_files("openvino")
@@ -56,6 +61,9 @@ DATAS += collect_data_files("optimum")
 DATAS += collect_data_files("transformers", include_py_files=False)
 DATAS += collect_data_files("huggingface_hub")
 DATAS += collect_data_files("librosa")
+# qfluentwidgets traz fontes, ícones, .qss — todos como data files.
+DATAS += collect_data_files("qfluentwidgets")
+DATAS += collect_data_files("qframelesswindow")
 
 ICON_PATH = PROJECT_ROOT / "build" / "kuatia.ico"
 icon = str(ICON_PATH) if ICON_PATH.exists() else None

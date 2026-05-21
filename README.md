@@ -163,4 +163,9 @@ Antes de cada release MVP, executar o **smoke E2E em VM Windows limpa**:
 
 ## Licença
 
-MIT — veja `LICENSE`.
+GPL-3.0-or-later — veja `LICENSE`.
+
+A dependência do `PySide6-Fluent-Widgets` (visual moderno da GUI) é GPLv3, o que
+obriga o projeto inteiro a ser GPL-compatível. Se quiser usar comercialmente sob
+licença permissiva, é necessário comprar a licença comercial do Fluent-Widgets e
+re-licenciar o restante do código.

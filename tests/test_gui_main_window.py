@@ -14,7 +14,6 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import (  # noqa: E402
     QCheckBox,
-    QComboBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -45,8 +44,8 @@ def test_log_view_readonly_e_vazio(qapp: object) -> None:
 
 
 def test_combo_model_lista_modelos_disponiveis(qapp: object) -> None:
+    """`model_combo` é um Fluent ComboBox (duck-typed: tem `itemData` e `count`)."""
     window = MainWindow()
-    assert isinstance(window.model_combo, QComboBox)
     items = [window.model_combo.itemData(i) for i in range(window.model_combo.count())]
     names = [m.name for m in available_models()]
     assert items == names
