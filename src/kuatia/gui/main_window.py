@@ -1,33 +1,43 @@
-"""Janela principal da GUI.
+"""Janela principal da GUI — visual Fluent Design.
 
-Layout: área de drop à esquerda (drag-and-drop + browse), painel de opções
-à direita, progress bar escondida abaixo do split, e log read-only no rodapé.
+Layout: drop area em card à esquerda, painel de opções à direita, progress bar
+abaixo do split (escondida) e log read-only no rodapé. Widgets vêm de
+`qfluentwidgets` pra ter a estética Win11 (Mica/Acrílico, transparência sutil,
+tipografia Segoe UI Variable).
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
     QFileDialog,
     QFormLayout,
-    QFrame,
-    QGroupBox,
     QHBoxLayout,
-    QLabel,
     QMainWindow,
-    QMessageBox,
-    QPlainTextEdit,
-    QProgressBar,
-    QPushButton,
     QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
+)
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    CardWidget,
+    CheckBox,
+    ComboBox,
+    FluentIcon,
+    IconWidget,
+    MessageBox,
+    PlainTextEdit,
+    PrimaryPushButton,
+    ProgressBar,
+    PushButton,
+    SubtitleLabel,
+    TitleLabel,
 )
 
 from kuatia.core.model_manager import (
@@ -62,7 +72,7 @@ from kuatia.gui.worker import TranscribeWorker, make_transcriber
 
 
 class MainWindow(QMainWindow):
-    """Janela principal — drag-and-drop, picker e controles de transcrição."""
+    """Janela principal — Fluent Design com drag-and-drop e controles modernos."""
 
     LANGUAGE_CHOICES = (
         ("Português", "portuguese"),
@@ -78,7 +88,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Kuatia — Transcrição local")
-        self.resize(960, 640)
+        self.resize(1080, 720)
+        self.setMinimumSize(880, 600)
         self.setAcceptDrops(True)
         self._selected_file: Path | None = None
         self._worker: TranscribeWorker | None = None
@@ -94,84 +105,127 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget(self)
         root = QVBoxLayout(central)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(14)
+
+        header = TitleLabel("Kuatia")
+        header_sub = CaptionLabel("Transcrição local com Whisper + OpenVINO")
+        root.addWidget(header)
+        root.addWidget(header_sub)
+        root.addSpacing(6)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, central)
+        splitter.setHandleWidth(8)
         splitter.addWidget(self._build_drop_area())
         splitter.addWidget(self._build_options_panel())
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
+        splitter.setSizes([580, 420])
         root.addWidget(splitter, stretch=1)
 
-        self.progress = QProgressBar(central)
+        self.progress = ProgressBar(central)
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setVisible(False)
+        self.progress.setFixedHeight(6)
         root.addWidget(self.progress)
 
-        log_box = QGroupBox("Log", central)
-        log_layout = QVBoxLayout(log_box)
-        log_layout.setContentsMargins(8, 16, 8, 8)
-        self.log_view = QPlainTextEdit(log_box)
+        log_card = CardWidget(central)
+        log_layout = QVBoxLayout(log_card)
+        log_layout.setContentsMargins(16, 12, 16, 16)
+        log_layout.setSpacing(8)
+        log_header = QHBoxLayout()
+        log_header.setSpacing(8)
+        log_icon = IconWidget(FluentIcon.MESSAGE, log_card)
+        log_icon.setFixedSize(16, 16)
+        log_header.addWidget(log_icon)
+        log_header.addWidget(SubtitleLabel("Log"))
+        log_header.addStretch(1)
+        log_layout.addLayout(log_header)
+        self.log_view = PlainTextEdit(log_card)
         self.log_view.setReadOnly(True)
         self.log_view.setPlaceholderText("Logs da transcrição aparecerão aqui.")
         self.log_view.setMaximumBlockCount(2000)
+        self.log_view.setMinimumHeight(140)
         log_layout.addWidget(self.log_view)
-        root.addWidget(log_box, stretch=0)
+        root.addWidget(log_card, stretch=0)
 
         self.setCentralWidget(central)
 
     def _build_drop_area(self) -> QWidget:
-        self.drop_frame = QFrame()
+        self.drop_frame = CardWidget()
         self.drop_frame.setObjectName("dropArea")
-        self.drop_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        self.drop_frame.setMinimumSize(360, 240)
+        self.drop_frame.setMinimumSize(380, 280)
         self.drop_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._apply_drop_style(state="idle")
 
         layout = QVBoxLayout(self.drop_frame)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(28, 28, 28, 28)
+        layout.setSpacing(10)
 
-        self.drop_title = QLabel("Solte um arquivo aqui")
+        self.drop_icon = IconWidget(FluentIcon.CLOUD_DOWNLOAD, self.drop_frame)
+        self.drop_icon.setFixedSize(56, 56)
+        icon_wrap = QHBoxLayout()
+        icon_wrap.addStretch(1)
+        icon_wrap.addWidget(self.drop_icon)
+        icon_wrap.addStretch(1)
+        layout.addLayout(icon_wrap)
+        layout.addSpacing(6)
+
+        self.drop_title = SubtitleLabel("Solte um arquivo aqui")
         self.drop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font = self.drop_title.font()
-        font.setPointSize(16)
-        font.setBold(True)
-        self.drop_title.setFont(font)
 
-        self.drop_subtitle = QLabel("…ou clique em Procurar (mp4, mp3, wav, m4a, flac, ogg, webm)")
+        self.drop_subtitle = CaptionLabel(
+            "…ou clique em Procurar (mp4, mp3, wav, m4a, flac, ogg, webm)"
+        )
         self.drop_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_subtitle.setStyleSheet("color: palette(mid);")
         self.drop_subtitle.setWordWrap(True)
 
-        self.browse_button = QPushButton("Procurar…")
-        self.browse_button.setMinimumHeight(32)
+        self.browse_button = PushButton(FluentIcon.FOLDER, "Procurar…")
+        self.browse_button.setMinimumHeight(34)
         self.browse_button.clicked.connect(self._on_browse_clicked)
 
         layout.addWidget(self.drop_title)
         layout.addWidget(self.drop_subtitle)
-        layout.addSpacing(12)
+        layout.addSpacing(14)
         layout.addWidget(self.browse_button, alignment=Qt.AlignmentFlag.AlignCenter)
-        return self.drop_frame
+        widget: QWidget = self.drop_frame
+        return widget
 
     def _build_options_panel(self) -> QWidget:
         panel = QWidget()
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(8)
+        outer.setSpacing(12)
 
-        opts = QGroupBox("Opções", panel)
-        form = QFormLayout(opts)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        # Card de opções de transcrição
+        opts_card = CardWidget(panel)
+        opts_layout = QVBoxLayout(opts_card)
+        opts_layout.setContentsMargins(20, 16, 20, 20)
+        opts_layout.setSpacing(10)
 
-        self.model_combo = QComboBox()
+        opts_header = QHBoxLayout()
+        opts_header.setSpacing(8)
+        opts_icon = IconWidget(FluentIcon.SETTING, opts_card)
+        opts_icon.setFixedSize(16, 16)
+        opts_header.addWidget(opts_icon)
+        opts_header.addWidget(SubtitleLabel("Opções"))
+        opts_header.addStretch(1)
+        opts_layout.addLayout(opts_header)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+
+        self.model_combo = ComboBox()
         for info in available_models():
             label = f"{info.name} (~{info.size_mb} MB)"
             self.model_combo.addItem(label, userData=info.name)
-        form.addRow("Modelo:", self.model_combo)
+        form.addRow(BodyLabel("Modelo"), self.model_combo)
 
-        self.device_combo = QComboBox()
+        self.device_combo = ComboBox()
         devices = detect_devices()
         for dev in devices:
             self.device_combo.addItem(device_label(dev), userData=dev)
@@ -179,37 +233,56 @@ class MainWindow(QMainWindow):
         idx = self.device_combo.findData(chosen)
         if idx >= 0:
             self.device_combo.setCurrentIndex(idx)
-        form.addRow("Device:", self.device_combo)
+        form.addRow(BodyLabel("Device"), self.device_combo)
 
-        self.language_combo = QComboBox()
+        self.language_combo = ComboBox()
         for label, value in self.LANGUAGE_CHOICES:
             self.language_combo.addItem(label, userData=value)
-        form.addRow("Idioma:", self.language_combo)
+        form.addRow(BodyLabel("Idioma"), self.language_combo)
 
-        self.task_combo = QComboBox()
+        self.task_combo = ComboBox()
         for label, value in self.TASK_CHOICES:
             self.task_combo.addItem(label, userData=value)
-        form.addRow("Tarefa:", self.task_combo)
+        form.addRow(BodyLabel("Tarefa"), self.task_combo)
 
-        outer.addWidget(opts)
+        opts_layout.addLayout(form)
+        outer.addWidget(opts_card)
 
-        export_box = QGroupBox("Formatos de saída", panel)
-        export_layout = QHBoxLayout(export_box)
-        self.export_checks: dict[str, QCheckBox] = {}
+        # Card de formatos de saída
+        export_card = CardWidget(panel)
+        export_layout_v = QVBoxLayout(export_card)
+        export_layout_v.setContentsMargins(20, 16, 20, 20)
+        export_layout_v.setSpacing(10)
+
+        export_header = QHBoxLayout()
+        export_header.setSpacing(8)
+        export_icon = IconWidget(FluentIcon.SAVE, export_card)
+        export_icon.setFixedSize(16, 16)
+        export_header.addWidget(export_icon)
+        export_header.addWidget(SubtitleLabel("Formatos de saída"))
+        export_header.addStretch(1)
+        export_layout_v.addLayout(export_header)
+
+        export_row = QHBoxLayout()
+        export_row.setSpacing(14)
+        self.export_checks: dict[str, CheckBox] = {}
         for fmt, default_on in (("txt", True), ("srt", True), ("vtt", False), ("docx", True)):
-            cb = QCheckBox(f".{fmt}")
+            cb = CheckBox(f".{fmt}")
             cb.setChecked(default_on)
-            export_layout.addWidget(cb)
+            export_row.addWidget(cb)
             self.export_checks[fmt] = cb
-        export_layout.addStretch(1)
-        outer.addWidget(export_box)
+        export_row.addStretch(1)
+        export_layout_v.addLayout(export_row)
 
-        self.transcribe_button = QPushButton("Transcrever")
-        self.transcribe_button.setMinimumHeight(36)
+        outer.addWidget(export_card)
+
+        # Ação primária
+        self.transcribe_button = PrimaryPushButton(FluentIcon.PLAY_SOLID, "Transcrever")
+        self.transcribe_button.setMinimumHeight(40)
         outer.addWidget(self.transcribe_button)
 
-        self.open_folder_button = QPushButton("Abrir pasta de saída…")
-        self.open_folder_button.setMinimumHeight(32)
+        self.open_folder_button = PushButton(FluentIcon.FOLDER_ADD, "Abrir pasta de saída")
+        self.open_folder_button.setMinimumHeight(34)
         self.open_folder_button.setVisible(False)
         self.open_folder_button.clicked.connect(self._on_open_folder_clicked)
         outer.addWidget(self.open_folder_button)
@@ -258,16 +331,12 @@ class MainWindow(QMainWindow):
     def _apply_drop_style(self, state: str) -> None:
         """Atualiza a borda da área de drop conforme o estado da operação."""
         color = {
-            "idle": "palette(mid)",
-            "accept": "palette(highlight)",
-            "reject": "#c0392b",
-        }.get(state, "palette(mid)")
+            "idle": "rgba(120, 120, 120, 120)",
+            "accept": "rgba(0, 120, 212, 220)",  # Win11 accent blue
+            "reject": "rgba(196, 43, 28, 220)",
+        }.get(state, "rgba(120, 120, 120, 120)")
         self.drop_frame.setStyleSheet(
-            f"#dropArea {{"
-            f" border: 2px dashed {color};"
-            f" border-radius: 12px;"
-            f" background-color: palette(alternate-base);"
-            f"}}"
+            f"#dropArea {{ border: 2px dashed {color}; border-radius: 12px;}}"
         )
 
     # ---- Browse + estado do arquivo ----
@@ -294,6 +363,7 @@ class MainWindow(QMainWindow):
         """Atualiza o estado interno e a UI da drop area com o arquivo escolhido."""
         self._selected_file = path
         duration = get_audio_duration(path)
+        self.drop_icon.setIcon(FluentIcon.MUSIC)
         self.drop_title.setText(path.name)
         if duration is None:
             self.drop_subtitle.setText(
@@ -374,7 +444,6 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_worker_finished)
         worker.error.connect(self._on_worker_error)
         worker.cancelled.connect(self._on_worker_cancelled)
-        # Limpa thread em qualquer terminação.
         worker.finished.connect(thread.quit)
         worker.error.connect(thread.quit)
         worker.cancelled.connect(thread.quit)
@@ -393,13 +462,16 @@ class MainWindow(QMainWindow):
 
     def _enter_running_state(self) -> None:
         self.transcribe_button.setText("Cancelar")
+        self.transcribe_button.setIcon(FluentIcon.PAUSE)
         self.transcribe_button.setEnabled(True)
         self.progress.setVisible(True)
         self.progress.setValue(0)
         self.browse_button.setEnabled(False)
+        self.open_folder_button.setVisible(False)
 
     def _leave_running_state(self) -> None:
         self.transcribe_button.setText("Transcrever")
+        self.transcribe_button.setIcon(FluentIcon.PLAY_SOLID)
         self.transcribe_button.setEnabled(True)
         self.progress.setVisible(False)
         self.progress.setValue(0)
@@ -422,8 +494,6 @@ class MainWindow(QMainWindow):
             return
         out_dir = input_path.parent
         base = out_dir / input_path.stem
-        from datetime import datetime
-
         meta = DocxMeta(
             input_name=input_path.name,
             duration_sec=None,
@@ -465,16 +535,14 @@ class MainWindow(QMainWindow):
         self._worker_thread = None
 
     def _show_message(self, text: str) -> None:
-        QMessageBox.information(self, "Kuatia", text)
+        box = MessageBox("Kuatia", text, self)
+        box.cancelButton.hide()
+        box.exec()
 
-    # ---- First-run / download de modelo (issue #11) ----
+    # ---- First-run / download de modelo ----
 
     def check_first_run(self) -> None:
-        """Verifica se o modelo default está pronto; se não, mostra dialog modal.
-
-        Idempotente — pode ser chamado mais de uma vez sem efeito colateral.
-        Chamado pelo `app.py` depois de `window.show()`.
-        """
+        """Verifica se o modelo default está pronto; se não, mostra dialog modal."""
         model_name = self.model_combo.currentData()
         if model_name is None:
             return
@@ -504,9 +572,7 @@ class MainWindow(QMainWindow):
         )
 
     def _pick_manual_model_dir(self) -> None:
-        from PySide6.QtWidgets import QFileDialog as _FD
-
-        path_str = _FD.getExistingDirectory(
+        path_str = QFileDialog.getExistingDirectory(
             self,
             "Selecionar pasta do modelo OpenVINO IR",
             str(Path.home()),
